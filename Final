@@ -1,0 +1,264 @@
+#include <LiquidCrystal.h>
+#include <Servo.h>
+Servo myservo;
+// initialize the library with the numbers of the interface pins
+LiquidCrystal lcd(7, 8, 9, 10, 11, 12);   //pins for LCD screen
+
+#include <dht_nonblocking.h>
+#define DHT_SENSOR_TYPE DHT_TYPE_11
+
+volatile unsigned char*portL = (unsigned char*) 0x10B;
+volatile unsigned char*ddrL = (unsigned char*) 0x01A;
+volatile unsigned char*pinL = (unsigned char*) 0x109;
+
+volatile unsigned char*portA = (unsigned char*) 0x22;
+volatile unsigned char*ddrA = (unsigned char*) 0x21;
+volatile unsigned char*pinA = (unsigned char*) 0x20;
+
+volatile unsigned char*portC = (unsigned char*) 0x28;
+volatile unsigned char*ddrC = (unsigned char*) 0x27;
+volatile unsigned char*pinC = (unsigned char*) 0x26;
+
+static const int DHT_SENSOR_PIN = 2;      //pin for temp./humidity
+DHT_nonblocking dht_sensor( DHT_SENSOR_PIN, DHT_SENSOR_TYPE );
+
+int adc_id = 0;                           //pin for water sensor
+int HistoryValue = 0;
+char printBuffer[128];
+
+int temp = 1;
+int oe;
+
+  void fan_on()
+  {
+    #define ENABLE 5                      // pin for DC motor (IC)
+    #define DIRA 3                        // pin for DC motor (IC)
+    #define DIRB 4                        // pin for DC motor (IC)
+
+    int i;
+    
+    pinMode(ENABLE,OUTPUT);
+    pinMode(DIRA,OUTPUT);
+    pinMode(DIRB,OUTPUT);
+    //Serial.begin(9600);
+ 
+ // Serial.println("PWM full then slow");
+  //---PWM example, full speed then slow
+  analogWrite(ENABLE,255); //enable on
+  digitalWrite(DIRA,HIGH); //one way
+  digitalWrite(DIRB,LOW);
+  delay(1000);
+  analogWrite(ENABLE,180); //half speed
+  delay(1000);
+  analogWrite(ENABLE,128); //half speed
+  delay(1000);
+  analogWrite(ENABLE,50); //half speed
+  delay(1000);
+  analogWrite(ENABLE,128); //half speed
+  delay(1000);
+  analogWrite(ENABLE,180); //half speed
+  delay(1000);
+  analogWrite(ENABLE,255); //half speed
+  delay(1000);
+  digitalWrite(ENABLE,LOW); //all done
+  delay(5000);
+  }
+
+  void fan_off()
+  {
+    #define DISABLE 5
+    #define DIRA 3
+    #define DIRB 4
+
+    int i;
+    
+    pinMode(DISABLE,OUTPUT);
+    pinMode(DIRA,OUTPUT);
+    pinMode(DIRB,OUTPUT);
+    //Serial.begin(9600);
+ 
+  //Serial.println("PWM full then slow");
+  //---PWM example, full speed then slow
+  analogWrite(DISABLE,255); //enable on
+  digitalWrite(DIRA,HIGH); //one way
+  digitalWrite(DIRB,LOW);
+  delay(1000);
+  analogWrite(DISABLE,180); //half speed
+  delay(1000);
+  analogWrite(DISABLE,128); //half speed
+  delay(1000);
+  analogWrite(DISABLE,50); //half speed
+  delay(1000);
+  analogWrite(DISABLE,128); //half speed
+  delay(1000);
+  analogWrite(DISABLE,180); //half speed
+  delay(1000);
+  analogWrite(DISABLE,255); //half speed
+  delay(1000);
+  digitalWrite(DISABLE,LOW); //all done
+  delay(5000);
+  }
+ void swing()
+ {
+  temp = temp +1;
+  oe = temp%2;
+  if (oe == 0)
+  {
+    myservo.write(90);
+    delay(150);
+  }
+  if (oe != 0)
+  {
+    myservo.write(30);
+    delay(150);
+  }
+  temp = temp +1;
+ }
+ 
+void setup( )
+{
+  myservo.attach(13);
+  myservo.write(90);
+  Serial.begin( 9600);
+
+   // set up the LCD's number of columns and rows:
+  lcd.begin(16, 2);
+  // Print a message to the LCD.
+  //lcd.print("Hello, World!");
+
+
+  *ddrL &= 0x7F;
+  *portL |= 0x80;
+}
+
+
+
+/*
+ * Poll for a measurement, keeping the state machine alive.  Returns
+ * true if a measurement is available.
+ */
+static bool measure_environment( float *temperature, float *humidity )
+{
+  static unsigned long measurement_timestamp = millis( );
+
+  /* Measure once every four seconds. */
+  if( millis( ) - measurement_timestamp > 3000ul )
+  {
+    if( dht_sensor.measure( temperature, humidity ) == true )
+    {
+      measurement_timestamp = millis( );
+      return( true );
+    }
+  }
+
+  return( false );
+}
+
+
+
+/*
+ * Main program loop.
+ */
+void loop( )
+{  
+    if(*pinL & 0x08)
+  {
+  void swing();
+  }
+  float temperature;
+  float humidity;
+
+  int value = analogRead(adc_id); // get adc value
+
+    if(((HistoryValue>=value) && ((HistoryValue - value) > 10)) || ((HistoryValue<value) && ((value - HistoryValue) > 10)))
+    {
+      sprintf(printBuffer,"ADC%d level is %d\n",adc_id, value);
+      Serial.print(printBuffer);
+      HistoryValue = value;
+
+    }
+    
+  /* Measure temperature and humidity.  If the functions returns
+     true, then a measurement is available. */
+  if( measure_environment( &temperature, &humidity ) == true )
+  {
+    Serial.print( "Temperature = " );
+    Serial.print( temperature, 1);
+    Serial.print( " C, Humidity = " );
+    Serial.print( humidity, 1);
+    Serial.println( "%" );
+    if(temperature <= 21)
+      {
+        lcd.setCursor(0, 0);
+        lcd.print("Temp = ");
+        lcd.print( temperature, 1);
+        //delay(1000);
+        //lcd.clear();
+        lcd.setCursor(0, 1);
+        lcd.print("Humidity = ");
+        lcd.print(humidity, 1);
+        lcd.print(value);
+        delay(500);
+        fan_on();
+    if (HistoryValue <200)
+      {
+        lcd.clear();
+        lcd.setCursor(0,0);
+        lcd.print("Water level low");
+        delay(5000);
+        lcd.clear();
+      }
+      }
+    if(temperature >= 20)
+      {
+        lcd.setCursor(0, 0);
+        lcd.print("Temp = ");
+        lcd.print( temperature, 1);
+        //delay(1000);
+        //lcd.clear();
+        lcd.setCursor(0, 1);
+        lcd.print("Humidity = ");
+        lcd.print(humidity, 1);
+        delay(500);
+        fan_off();
+     if (HistoryValue <200)
+      {
+        lcd.clear();
+        lcd.setCursor(0,0);
+        lcd.print("Water level low");
+        delay(5000);
+        lcd.clear();
+      }
+      }
+    else
+    {
+        lcd.setCursor(0, 0);
+        lcd.print("Temp = ");
+        lcd.print( temperature, 1);
+        //delay(1000);
+        //lcd.clear();
+        lcd.setCursor(0, 1);
+        lcd.print("Humidity = ");
+        lcd.print(humidity, 1);
+        delay(500);
+        lcd.clear();
+     if (HistoryValue <200)
+      {
+        lcd.clear();
+        lcd.setCursor(0,0);
+        lcd.print("Water level low");
+        delay(1000);
+        lcd.clear();
+      }
+    } 
+   
+        
+  }
+
+
+    // set the cursor to column 0, line 1
+  // (note: line 1 is the second row, since counting begins with 0):
+  //lcd.setCursor(0, 1);
+  // print the number of seconds since reset:
+  //lcd.print(millis() / 1000);
+}
